@@ -2,6 +2,7 @@ const express = require('express');
 const ExpressError = require('../expressError');
 const router = new express.Router();
 const db = require('../db');
+const slugify = require('slugify');
 
 router.get('/', async (req, res, next) => {
     try {
@@ -14,9 +15,11 @@ router.get('/', async (req, res, next) => {
 
 router.post('/', async (req, res, next) => {
     try {
-        let { code, name, description } = req.body;
+        let { name, description } = req.body;
+        let code = slugify(name, {"strict": true, "lower":true})
+
         const results = await db.query(`INSERT INTO companies (code, name, description) VALUES($1, $2, $3) RETURNING code, name, description`, [code, name, description]);
-        return res.json({ "company": results.rows[0] })
+        return res.status(201).json({ "company": results.rows[0] })
     } catch (e) {
         return next(e)
     }
@@ -29,11 +32,21 @@ router.get('/:code', async (req, res, next) => {
         if (results.rows.length === 0) throw new ExpressError(`No company: ${code}`, 404);
 
         const invoiceResults = await db.query(`SELECT id FROM invoices WHERE comp_code = $1`, [code])
+        const indusResults = await db.query(`
+        SELECT ind.industry FROM companies AS c
+        LEFT JOIN companies_industries AS ci
+        ON c.code = ci.comp_code
+        LEFT JOIN industries AS ind
+        ON ci.industry_code = ind.code
+        WHERE c.code = $1
+        `,[code])
 
         const company = results.rows[0];
         const compInvoices = invoiceResults.rows;
+        const compIndus = indusResults.rows;
 
-        company.compInvoices = compInvoices.map(i=>i.id);
+        company.invoices = compInvoices.map(i=>i.id);
+        company.industries = compIndus.map(x=> x.industry)
 
         return res.json({ "company": company});
     } catch (e) {
